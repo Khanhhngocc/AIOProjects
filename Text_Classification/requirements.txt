@@ -1,0 +1,8 @@
+numpy
+pandas
+torch
+transformers
+faiss-cpu
+scikit-learn
+tqdm
+pytest

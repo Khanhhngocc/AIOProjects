@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "face-checkin"
+version = "0.1.0"
+description = "Face-based employee check-in system using FAISS and FaceNet"
+requires-python = ">=3.10,<3.13"
+
+dependencies = [
+    "numpy==1.26.4",
+    "matplotlib>=3.8,<4",
+    "Pillow==10.2.0",
+    "faiss-cpu==1.8.0",
+    "torch==2.2.2",
+    "torchvision==0.17.2",
+    "facenet-pytorch==2.6.0",
+    "streamlit",
+    "opencv-python",
+    "pandas",
+    "plotly",
+    "scikit-learn"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

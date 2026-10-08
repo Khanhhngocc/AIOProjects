@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Generated FAISS indexes
+data/processed/indexes/*.index
+data/processed/indexes/*.json
+
+# Dataset
+data/raw/Dataset/*
+!data/raw/Dataset/.gitkeep
+
+# Query images
+data/query/*
+!data/query/.gitkeep
