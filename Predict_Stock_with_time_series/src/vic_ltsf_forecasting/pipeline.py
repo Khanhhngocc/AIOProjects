@@ -1,301 +1,156 @@
-import joblib
+import pandas as pd
 
 from vic_ltsf_forecasting.config import (
-    TARGET_COLUMN,
-    LOOK_BACK_WINDOWS,
-    PREDICTION_LENGTH,
-    TRAIN_RATIO,
-    VALID_RATIO,
-    BATCH_SIZE,
-    NUM_EPOCHS,
-    LEARNING_RATE,
-    MOVING_AVERAGE_WINDOW,
-    MODEL_NAMES,
-    MODEL_DIR,
-    RESULT_DIR,
-    DEVICE,
-    SEED,
+    RESULT_DIR, MODEL_DIR, MODEL_NAMES, LOOK_BACK_WINDOWS,
+    PREDICTION_LENGTH, NUM_EPOCHS, LEARNING_RATE,
+    BATCH_SIZE, SEED, DEVICE
 )
-
-from vic_ltsf_forecasting.utils import set_seed
-from vic_ltsf_forecasting.data_loader import (
-    load_dataframe,
-    prepare_dataframe,
-    prepare_series_and_scaler,
-)
-from vic_ltsf_forecasting.dataset import build_datasets_and_loaders
+from vic_ltsf_forecasting.data_loader import load_dataframe, prepare_series
+from vic_ltsf_forecasting.dataset import create_loaders
 from vic_ltsf_forecasting.models import create_model
-from vic_ltsf_forecasting.trainer import (
-    train_model,
-    load_model_from_checkpoint,
-)
-from vic_ltsf_forecasting.evaluator import (
-    evaluate_predictions,
-    create_performance_summary,
-    get_best_experiment,
-)
-from vic_ltsf_forecasting.forecaster import (
-    forecast_next_days,
-    create_forecast_dataframe,
-)
-from vic_ltsf_forecasting.visualization import (
-    plot_eda,
-    plot_loss_curves,
-    plot_test_predictions,
-    plot_future_forecast,
+from vic_ltsf_forecasting.trainer import train_model
+from vic_ltsf_forecasting.evaluator import evaluate_model
+from vic_ltsf_forecasting.utils import (
+    set_seed, create_run_dir, save_json, save_dataframe
 )
 
 
-def run_pipeline(
-    num_epochs=NUM_EPOCHS,
-    show_plots=True,
-    force_train=False,
-):
-    """Run the complete VIC forecasting pipeline."""
+def run_training_pipeline():
+    # 1. Create run
     set_seed(SEED)
 
-    # Automatically recreate output directories if they are missing
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    run_dir = create_run_dir(RESULT_DIR)
+    model_run_dir = MODEL_DIR / run_dir.name
+    model_run_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Using device: {DEVICE}")
+    config = {
+        "models": MODEL_NAMES,
+        "look_back_windows": LOOK_BACK_WINDOWS,
+        "prediction_length": PREDICTION_LENGTH,
+        "epochs": NUM_EPOCHS,
+        "learning_rate": LEARNING_RATE,
+        "batch_size": BATCH_SIZE,
+        "seed": SEED
+    }
 
-    # 1. Load and preprocess data
-    df = load_dataframe()
-    df = prepare_dataframe(df)
+    save_json(config, run_dir / "config.json")
 
-    print(f"\nDataset shape: {df.shape}")
-    print(
-        f"Date range: "
-        f"{df['time'].min().date()} -> "
-        f"{df['time'].max().date()}"
-    )
+    # 2. Load data
+    dataframe = load_dataframe()
+    series, scaler, train_end, valid_end = prepare_series(dataframe)
+    loaders = create_loaders(series, scaler, train_end, valid_end)
 
-    if show_plots:
-        plot_eda(df)
+    print(f"Device: {DEVICE}")
+    print(f"Run: {run_dir.name}")
+    print(f"Dataset rows: {len(dataframe)}")
 
-    # 2. Create chronological split and fit the scaler on training data
-    series, train_end, valid_end, scaler = prepare_series_and_scaler(
-        dataframe=df,
-        target_column=TARGET_COLUMN,
-        train_ratio=TRAIN_RATIO,
-        valid_ratio=VALID_RATIO,
-    )
-
-    joblib.dump(
-        scaler,
-        MODEL_DIR / "vic_standard_scaler.pkl",
-    )
-
-    print("\nTime-based split:")
-    print(f"Train: 0 -> {train_end - 1}")
-    print(f"Valid: {train_end} -> {valid_end - 1}")
-    print(f"Test : {valid_end} -> {len(series) - 1}")
-
-    # 3. Create Dataset and DataLoader objects
-    datasets_by_window, loaders_by_window = build_datasets_and_loaders(
-        series=series,
-        dates=df["time"].to_numpy(),
-        look_back_windows=LOOK_BACK_WINDOWS,
-        pred_len=PREDICTION_LENGTH,
-        train_end=train_end,
-        valid_end=valid_end,
-        scaler=scaler,
-        batch_size=BATCH_SIZE,
-    )
-
-    # 4. Load existing checkpoints or train missing models
-    trained_models = {}
-    loss_histories = {}
-    test_results = {}
+    # 3. Train experiments
+    summary_rows = []
 
     for look_back in LOOK_BACK_WINDOWS:
-        trained_models[look_back] = {}
-        loss_histories[look_back] = {}
-        test_results[look_back] = {}
-
-        train_loader = loaders_by_window[look_back]["train"]
-        valid_loader = loaders_by_window[look_back]["valid"]
-        test_loader = loaders_by_window[look_back]["test"]
-
-        print(f"\n{'=' * 70}")
-        print(
-            f"Look-back: {look_back} days -> "
-            f"Forecast: {PREDICTION_LENGTH} days"
-        )
-        print(f"{'=' * 70}")
-
         for model_name in MODEL_NAMES:
+            print(f"\nTraining {model_name} | Look-back: {look_back} days")
+
             set_seed(SEED)
 
-            model = create_model(
-                model_name=model_name,
-                seq_len=look_back,
-                pred_len=PREDICTION_LENGTH,
-                moving_avg=MOVING_AVERAGE_WINDOW,
-            )
+            model = create_model(model_name, look_back, PREDICTION_LENGTH)
 
-            checkpoint_path = MODEL_DIR / (
+            checkpoint_path = (
+                model_run_dir /
                 f"vic_{model_name.lower()}_{look_back}d_best.pt"
             )
 
-            if checkpoint_path.exists() and not force_train:
-                print(
-                    f"\nLoading checkpoint -> "
-                    f"{checkpoint_path.name}"
-                )
-
-                trained_model, checkpoint = load_model_from_checkpoint(
-                    model=model,
-                    checkpoint_path=checkpoint_path,
-                    device=DEVICE,
-                )
-
-                history = None
-
-                print(
-                    f"Loaded {model_name} | "
-                    f"Best epoch: {checkpoint['epoch']} | "
-                    f"Best valid MSE: "
-                    f"{checkpoint['best_valid_loss']:.6f}"
-                )
-
-            else:
-                if force_train and checkpoint_path.exists():
-                    print(
-                        f"\nForce training -> "
-                        f"{model_name}, {look_back}-day look-back"
-                    )
-                else:
-                    print(
-                        f"\nCheckpoint not found. Training -> "
-                        f"{model_name}, {look_back}-day look-back"
-                    )
-
-                trained_model, history, checkpoint_path = train_model(
-                    model=model,
-                    train_loader=train_loader,
-                    valid_loader=valid_loader,
-                    model_name=model_name,
-                    look_back=look_back,
-                    pred_len=PREDICTION_LENGTH,
-                    device=DEVICE,
-                    num_epochs=num_epochs,
-                    learning_rate=LEARNING_RATE,
-                )
-
-            # Evaluate loaded or newly trained model on the test set
-            result = evaluate_predictions(
-                model=trained_model,
-                dataloader=test_loader,
-                scaler=scaler,
-                device=DEVICE,
+            model, history, best_valid_loss, best_epoch = train_model(
+                model,
+                loaders[look_back]["train"],
+                loaders[look_back]["valid"],
+                checkpoint_path,
+                DEVICE,
+                NUM_EPOCHS,
+                LEARNING_RATE
             )
 
-            trained_models[look_back][model_name] = trained_model
-            loss_histories[look_back][model_name] = history
-            test_results[look_back][model_name] = result
+            result = evaluate_model(
+                model,
+                loaders[look_back]["test"],
+                scaler,
+                DEVICE
+            )
+
+            experiment_dir = (
+                run_dir /
+                "experiments" /
+                f"{model_name}_{look_back}d"
+            )
+
+            experiment_dir.mkdir(parents=True, exist_ok=True)
+
+            history_df = pd.DataFrame({
+                "epoch": range(1, NUM_EPOCHS + 1),
+                "train_loss": history["train_loss"],
+                "valid_loss": history["valid_loss"]
+            })
+
+            save_dataframe(
+                history_df,
+                experiment_dir / "history.csv"
+            )
+
+            metrics = {
+                "model": model_name,
+                "look_back": look_back,
+                "best_epoch": best_epoch,
+                "best_valid_loss": best_valid_loss,
+                "rmse": result["rmse"],
+                "mae": result["mae"],
+                "r2": result["r2"]
+            }
+
+            save_json(
+                metrics,
+                experiment_dir / "metrics.json"
+            )
+
+            prediction_rows = []
+
+            for window in range(len(result["predictions"])):
+                for horizon in range(PREDICTION_LENGTH):
+                    prediction_rows.append({
+                        "window": window,
+                        "horizon_day": horizon + 1,
+                        "actual": result["actuals"][window, horizon],
+                        "predicted": result["predictions"][window, horizon]
+                    })
+
+            save_dataframe(
+                pd.DataFrame(prediction_rows),
+                experiment_dir / "test_predictions.csv"
+            )
+
+            summary_rows.append(metrics)
 
             print(
-                f"Test -> {model_name} | "
-                f"RMSE: {result['rmse']:,.0f} VND | "
+                f"Test -> RMSE: {result['rmse']:,.0f} VND | "
                 f"MAE: {result['mae']:,.0f} VND | "
                 f"R²: {result['r2']:.4f}"
             )
 
-    # 5. Compare all experiments
-    summary_df = create_performance_summary(
-        test_results=test_results,
-        look_back_windows=LOOK_BACK_WINDOWS,
-        model_names=MODEL_NAMES,
+    # 4. Save summary
+    summary_df = pd.DataFrame(summary_rows)
+    summary_df = summary_df.sort_values("rmse").reset_index(drop=True)
+
+    save_dataframe(
+        summary_df,
+        run_dir / "summary.csv"
     )
 
-    summary_path = (
-        RESULT_DIR / "vic_ltsf_performance_summary.csv"
-    )
+    best = summary_df.iloc[0]
 
-    summary_df.to_csv(
-        summary_path,
-        index=False,
-    )
+    print("\nBest experiment:")
+    print(f"Model: {best['model']}")
+    print(f"Look-back: {int(best['look_back'])} days")
+    print(f"RMSE: {best['rmse']:,.0f} VND")
+    print(f"MAE: {best['mae']:,.0f} VND")
+    print(f"R²: {best['r2']:.4f}")
 
-    print("\nTest Performance Summary:")
-    print(summary_df.to_string(index=False))
-
-    # 6. Select the experiment with the lowest RMSE
-    best_row = get_best_experiment(summary_df)
-
-    best_look_back = int(best_row["Look-back Days"])
-    best_model_name = best_row["Model"]
-    best_model = trained_models[
-        best_look_back
-    ][best_model_name]
-
-    print("\nBest Experiment:")
-    print(f"Model     : {best_model_name}")
-    print(f"Look-back : {best_look_back} days")
-    print(
-        f"RMSE      : "
-        f"{best_row['RMSE (VND)']:,.0f} VND"
-    )
-
-    # 7. Forecast the next business days
-    forecast_dates, forecast_prices = forecast_next_days(
-        dataframe=df,
-        model=best_model,
-        scaler=scaler,
-        look_back=best_look_back,
-        pred_len=PREDICTION_LENGTH,
-        device=DEVICE,
-    )
-
-    forecast_df = create_forecast_dataframe(
-        forecast_dates,
-        forecast_prices,
-    )
-
-    forecast_path = (
-        RESULT_DIR / "vic_next_5_day_forecast.csv"
-    )
-
-    forecast_df.to_csv(
-        forecast_path,
-        index=False,
-    )
-
-    print("\nNext 5-Day Forecast:")
-    print(forecast_df.to_string(index=False))
-
-    # 8. Visualize results
-    if show_plots:
-        plot_loss_curves(
-            loss_histories=loss_histories,
-            look_back_windows=LOOK_BACK_WINDOWS,
-            model_names=MODEL_NAMES,
-            pred_len=PREDICTION_LENGTH,
-        )
-
-        plot_test_predictions(
-            test_results=test_results,
-            look_back_windows=LOOK_BACK_WINDOWS,
-            model_names=MODEL_NAMES,
-            pred_len=PREDICTION_LENGTH,
-        )
-
-        plot_future_forecast(
-            dataframe=df,
-            forecast_dates=forecast_dates,
-            forecast_prices=forecast_prices,
-            model_name=best_model_name,
-            look_back=best_look_back,
-        )
-
-    return {
-        "dataframe": df,
-        "datasets": datasets_by_window,
-        "models": trained_models,
-        "histories": loss_histories,
-        "test_results": test_results,
-        "summary": summary_df,
-        "forecast": forecast_df,
-    }
+    return run_dir

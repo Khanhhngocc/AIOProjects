@@ -1,11 +1,12 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
+*.pyo
 
-# Virtual environment
+# Virtual environments
 .venv/
 venv/
+env/
 
 # IDE
 .idea/
@@ -14,15 +15,22 @@ venv/
 # macOS
 .DS_Store
 
-# Dataset
-data/raw/*.csv
+# Python package artifacts
+*.egg-info/
+build/
+dist/
 
-# Trained models
-models/*.pt
-models/*.pkl
+# Model checkpoints
+models/
+*.pt
+*.pth
+*.ckpt
 
-# Results
-results/*.csv
+# Raw dataset
+data/*.csv
 
-# Test cache
-.pytest_cache/
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log

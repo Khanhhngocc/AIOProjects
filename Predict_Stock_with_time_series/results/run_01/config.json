@@ -1,0 +1,18 @@
+{
+    "models": [
+        "Linear",
+        "DLinear",
+        "NLinear"
+    ],
+    "look_back_windows": [
+        5,
+        30,
+        120,
+        480
+    ],
+    "prediction_length": 5,
+    "epochs": 50,
+    "learning_rate": 0.001,
+    "batch_size": 32,
+    "seed": 59
+}

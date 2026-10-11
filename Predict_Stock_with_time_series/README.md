@@ -1,50 +1,39 @@
 # VIC Stock Price Forecasting with LTSF-Linear Models
 
-A time-series forecasting project that predicts the next 5 VIC stock closing prices using three lightweight forecasting models: **Linear**, **NLinear**, and **DLinear**.
+A time-series forecasting project for predicting the next 5 VIC stock closing prices using lightweight LTSF-Linear models.
 
-The project evaluates multiple historical look-back windows and automatically selects the best-performing experiment based on test RMSE.
+The project compares **Linear**, **NLinear**, and **DLinear** across multiple historical look-back windows using chronological time-series splits, sliding-window preprocessing, model checkpointing, and experiment tracking.
 
 ## Overview
 
-This project applies Long-Term Series Forecasting techniques to historical VIC stock prices.
+The forecasting setup includes:
 
-The forecasting task is:
+- **Input:** Historical VIC closing prices
+- **Look-back windows:** 5, 30, 120, and 480 trading days
+- **Forecast horizon:** 5 future trading days
+- **Models:** Linear, NLinear, DLinear
+- **Evaluation metrics:** RMSE, MAE, R²
 
-* Input: historical VIC closing prices
-* Look-back windows: `5`, `30`, `120`, and `480` trading days
-* Forecast horizon: `5` future business days
-* Models:
+Closing prices are log-transformed and standardized before training. The scaler is fitted only on the training data to prevent data leakage, and predictions are transformed back to the original price scale for evaluation.
 
-  * Linear
-  * NLinear
-  * DLinear
-* Main evaluation metrics:
-
-  * RMSE
-  * MAE
-  * R²
-
-The target closing price is first log-transformed and standardized before being passed to the models. Predictions are converted back to the original VND price scale for evaluation and forecasting.
 
 ## Models
 
 ### Linear
 
-The Linear model directly maps a historical sequence of length `seq_len` to the next `pred_len` values using a single linear layer.
+The Linear model directly maps a historical sequence to the future forecasting horizon using a single linear layer.
 
 ```text
 Historical Sequence
         ↓
-    Linear Layer
+   Linear Layer
         ↓
 Future Predictions
 ```
 
 ### NLinear
 
-NLinear normalizes each input sequence using its most recent observed value.
-
-The model learns relative movements instead of absolute price levels.
+NLinear re-centers each input sequence using its most recent observed value. The linear layer therefore learns relative changes rather than absolute price levels.
 
 ```text
 Input Sequence
@@ -60,100 +49,83 @@ Prediction
 
 ### DLinear
 
-DLinear decomposes the input sequence into:
-
-* Trend component
-* Seasonal component
-
-Each component is processed by a separate linear layer before the outputs are combined.
+DLinear decomposes the input sequence into trend and seasonal components using a moving average. Each component is forecast separately before the outputs are combined.
 
 ```text
 Input Sequence
       ↓
 Moving Average Decomposition
       ↓
-┌─────────────┬─────────────┐
-│    Trend    │  Seasonal   │
-│ Linear Layer│ Linear Layer│
-└─────────────┴─────────────┘
+Trend + Seasonal Components
+      ↓
+Separate Linear Layers
       ↓
 Combined Prediction
 ```
 
-## Sliding-Window Dataset
+## Experiments
 
-Each training sample contains:
+Each model is evaluated with four historical look-back windows:
 
-```text
-X = historical prices
-y = future prices
-```
+| Look-back Window | Forecast Horizon |
+| ---: | ---: |
+| 5 days | 5 days |
+| 30 days | 5 days |
+| 120 days | 5 days |
+| 480 days | 5 days |
 
-For example, with:
-
-```text
-look_back = 30
-prediction_length = 5
-```
-
-the model receives:
+This produces a total of:
 
 ```text
-Past 30 trading days
-        ↓
-Predict
-        ↓
-Next 5 trading days
+3 models × 4 look-back windows = 12 experiments
 ```
 
-The project experiments with:
+For each experiment, the project stores:
 
-```text
-5   → 5
-30  → 5
-120 → 5
-480 → 5
-```
+- Training and validation loss history
+- Best model checkpoint
+- Evaluation metrics
+- Test-set predictions
 
-## Evaluation
+## Results
 
-Each model is evaluated on the original VIC price scale using:
+The best-performing experiment in the current run is:
 
-### Mean Absolute Error
+| Metric | Result |
+| --- | ---: |
+| Model | NLinear |
+| Look-back Window | 5 days |
+| RMSE | 4 |
+| MAE | 2 |
+| R² | 0.9714 |
 
-```text
-MAE = mean(|actual - predicted|)
-```
+### Model Comparison
 
-### Root Mean Squared Error
+![RMSE Comparison](results/run_01/figures/rmse_comparison.png)
 
-```text
-RMSE = sqrt(mean((actual - predicted)²))
-```
+### Training History
 
-### R² Score
+![Best Model Loss](results/run_01/figures/best_model_loss.png)
 
-R² measures how much of the variation in the target values is explained by the model.
+### Test Predictions
 
-The experiment with the lowest RMSE is selected as the best configuration.
+![Best Model Predictions](results/run_01/figures/best_model_predictions.png)
+
+### Future Forecast
+
+![Future Forecast](results/run_01/figures/future_forecast.png)
 
 
-## Possible Future Improvements
 
-Potential extensions include:
+## Possible Improvements
 
-* Add LSTM, GRU, Transformer models
-* Add additional stock features such as volume, open, high, and low prices
-* Add technical indicators
-* Save complete training histories
-* Add early stopping
-* Add experiment tracking
-* Add configuration files
-* Create an inference-only application
-* Build an interactive Streamlit dashboard
-* Compare recursive and direct multi-step forecasting strategies
-* Support forecasting for other stock symbols
+- Add LSTM, GRU, and Transformer-based forecasting models
+- Include OHLCV features and technical indicators
+- Add early stopping
+- Compare direct and recursive multi-step forecasting
+- Build an interactive Streamlit application
+- Support additional stock symbols
 
 ## Disclaimer
 
-This project is intended for educational and research purposes only.
+This project is intended for educational and research purposes only and should not be considered financial advice.
