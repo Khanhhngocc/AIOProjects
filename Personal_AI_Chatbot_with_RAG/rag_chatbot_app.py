@@ -82,7 +82,9 @@ def main():
 
     init_session_state()
 
-    logo_path = Path("logo.png")
+    BASE_DIR = Path(__file__).resolve().parent
+    logo_path = BASE_DIR / "logo.png"
+
     if logo_path.exists():
         st.logo(str(logo_path), size="large")
 
