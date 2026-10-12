@@ -11,11 +11,11 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy==2.1.3",
     "Pillow",
-    "faiss-cpu==1.10.0",
+    "faiss-cpu>=1.10,<2",
     "insightface==2.1",
     "onnxruntime",
     "streamlit",
-    "opencv-python==4.11.0.86",
+    "opencv-python==5.0.0.93",
     "pandas",
     "plotly",
     "scikit-learn",
