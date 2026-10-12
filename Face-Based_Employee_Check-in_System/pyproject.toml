@@ -10,7 +10,6 @@ requires-python = ">=3.10"
 
 dependencies = [
     "numpy",
-    "matplotlib",
     "Pillow",
     "faiss-cpu>=1.10,<2",
     "insightface==2.1",
@@ -19,7 +18,8 @@ dependencies = [
     "opencv-python",
     "pandas",
     "plotly",
-    "scikit-learn"
+    "scikit-learn",
+    "matplotlib"
 ]
 
 [project.optional-dependencies]
