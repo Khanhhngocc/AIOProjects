@@ -163,10 +163,9 @@ class CocktailDataProcessor:
             print(f"Successfully stored {len(df)} cocktails.")
 
         except Exception as e:
-            print(f"Error storing cocktails: {e}")
-
             if conn:
                 conn.rollback()
+            raise
 
         finally:
             if cursor:
