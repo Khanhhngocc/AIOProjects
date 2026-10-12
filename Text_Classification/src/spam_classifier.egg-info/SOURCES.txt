@@ -1,0 +1,14 @@
+pyproject.toml
+src/spam_classifier/__init__.py
+src/spam_classifier/classifier.py
+src/spam_classifier/config.py
+src/spam_classifier/data_loader.py
+src/spam_classifier/embedder.py
+src/spam_classifier/evaluator.py
+src/spam_classifier/pipeline.py
+src/spam_classifier/vector_store.py
+src/spam_classifier.egg-info/PKG-INFO
+src/spam_classifier.egg-info/SOURCES.txt
+src/spam_classifier.egg-info/dependency_links.txt
+src/spam_classifier.egg-info/top_level.txt
+tests/test_classifier.py
