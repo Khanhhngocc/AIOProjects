@@ -1,5 +1,4 @@
 from pathlib import Path
-import torch
 
 
 # ============================================================
@@ -41,25 +40,10 @@ RAW_VECTOR_DIM = RAW_IMAGE_SIZE * RAW_IMAGE_SIZE * 3
 
 
 # ============================================================
-# FACE EMBEDDING CONFIGURATION
+# INSIGHTFACE CONFIGURATION
 # ============================================================
 
-FACE_IMAGE_SIZE = 160
 FACE_VECTOR_DIM = 512
 
-
-# ============================================================
-# DEVICE
-# ============================================================
-
-def get_device():
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-
-    return torch.device("cpu")
-
-
-DEVICE = torch.device("cpu")
+INSIGHTFACE_MODEL_NAME = "buffalo_l"
+INSIGHTFACE_PROVIDERS = ["CPUExecutionProvider"]

@@ -1,5 +1,3 @@
-import time
-
 import cv2
 import numpy as np
 import pandas as pd
@@ -61,7 +59,11 @@ QUERY_IMAGE_PATH = QUERY_DIR / "streamlit_query.jpg"
 @st.cache_resource
 def load_system():
     system = FaceCheckinSystem()
-    system.load_indexes()
+
+    try:
+        system.load_face_index()
+    except FileNotFoundError:
+        system.build_face_index(save=False)
 
     return system
 
@@ -105,86 +107,34 @@ def save_query_image(image):
 
 
 # ============================================================
-# OPENCV CAMERA
+# CAMERA IMAGE PROCESSING
 # ============================================================
 
-def capture_from_camera():
-    camera_placeholder = st.empty()
-    countdown_placeholder = st.empty()
+def camera_to_image(camera_file):
+    bytes_data = camera_file.getvalue()
+    np_array = np.frombuffer(bytes_data, dtype=np.uint8)
 
-    cap = cv2.VideoCapture(0)
+    frame_bgr = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
-    if not cap.isOpened():
-        st.warning(
-            "Could not access the camera. "
-            "Please upload an image instead."
-        )
-        return None
-
-    capture_delay = 3
-    start_time = time.time()
-    captured_frame = None
-
-    while time.time() - start_time < capture_delay:
-        ret, frame = cap.read()
-
-        if not ret:
-            st.error("Failed to capture camera frame.")
-            break
-
-        # OpenCV uses BGR, while Streamlit/PIL use RGB
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        captured_frame = frame_rgb
-
-        remaining = int(
-            capture_delay - (time.time() - start_time)
-        ) + 1
-
-        countdown_placeholder.markdown(
-            f"<h2 style='text-align:center'>{remaining}</h2>",
-            unsafe_allow_html=True
-        )
-
-        camera_placeholder.image(
-            frame_rgb,
-            channels="RGB",
-            use_container_width=True
-        )
-
-        time.sleep(0.05)
-
-    cap.release()
-
-    camera_placeholder.empty()
-    countdown_placeholder.empty()
-
-    if captured_frame is None:
-        return None
-
-    return Image.fromarray(captured_frame)
+    return Image.fromarray(frame_rgb)
 
 
 # ============================================================
-# MATCH QUERY IMAGE
+# PROCESS CHECK-IN
 # ============================================================
 
 def process_checkin(system, image, threshold, top_k):
     query_path = save_query_image(image)
 
-    # Image -> MTCNN -> FaceNet -> 512D embedding
-    query_embedding = system.face_engine.image_to_embedding(
-        query_path
-    )
-
+    # Image -> InsightFace -> 512-D embedding
+    query_embedding = system.face_engine.image_to_embedding(query_path)
     st.session_state.query_embedding = query_embedding
 
     # Search using the same embedding
-    results = system.search_face_embedding(
-        query_embedding,
-        k=top_k
-    )
+    results = system.search_face_embedding(query_embedding, k=top_k)
 
-    # Keep matches that pass the threshold
+    # Keep only matches above the similarity threshold
     matches = [
         result
         for result in results
@@ -202,10 +152,7 @@ def process_checkin(system, image, threshold, top_k):
 
     st.session_state.matching_result = best_match["label"]
     st.session_state.matching_similarity = best_match["similarity"]
-
-    st.session_state.checkin_status[
-        best_match["label"]
-    ] = True
+    st.session_state.checkin_status[best_match["label"]] = True
 
 
 # ============================================================
@@ -214,7 +161,6 @@ def process_checkin(system, image, threshold, top_k):
 
 def display_employee_list(system):
     st.markdown("### 👥 Employee List")
-
     columns = st.columns(3)
 
     for i, record in enumerate(system.face_metadata):
@@ -223,27 +169,15 @@ def display_employee_list(system):
         checked = st.session_state.checkin_status[name]
 
         with columns[i % 3]:
-            st.image(
-                image_path,
-                use_container_width=True
-            )
+            st.image(image_path, use_container_width=True)
 
             st.markdown(
                 f"<h4 style='text-align:center'>{name}</h4>",
                 unsafe_allow_html=True
             )
 
-            status_class = (
-                "checked-in"
-                if checked
-                else "not-checked"
-            )
-
-            status_text = (
-                "CHECKED IN"
-                if checked
-                else "NOT CHECKED"
-            )
+            status_class = "checked-in" if checked else "not-checked"
+            status_text = "CHECKED IN" if checked else "NOT CHECKED"
 
             st.markdown(
                 f"""
@@ -264,24 +198,13 @@ def display_top_matches(matches):
         return
 
     st.markdown("### 🏆 Top Matches")
-
     columns = st.columns(2)
 
     for i, result in enumerate(matches):
         with columns[i % 2]:
-            st.image(
-                result["image_path"],
-                use_container_width=True
-            )
-
-            st.markdown(
-                f"**{i + 1}. {result['label']}**"
-            )
-
-            st.write(
-                f"Similarity: "
-                f"{result['similarity']:.4f}"
-            )
+            st.image(result["image_path"], use_container_width=True)
+            st.markdown(f"**{i + 1}. {result['label']}**")
+            st.write(f"Similarity: {result['similarity']:.4f}")
 
 
 # ============================================================
@@ -293,13 +216,10 @@ def visualize_embeddings(system, query_embedding, matches):
         return
 
     if system.face_index.ntotal < 3:
-        st.warning(
-            "Need at least 3 embeddings "
-            "for 3D PCA visualization."
-        )
+        st.warning("Need at least 3 embeddings for 3D PCA visualization.")
         return
 
-    # Get all stored 512-D employee embeddings
+    # Retrieve all stored 512-D employee embeddings from FAISS
     employee_embeddings = system.face_index.reconstruct_n(
         0,
         system.face_index.ntotal
@@ -310,12 +230,9 @@ def visualize_embeddings(system, query_embedding, matches):
         dtype=np.float32
     )
 
-    labels = [
-        record["label"]
-        for record in system.face_metadata
-    ]
+    labels = [record["label"] for record in system.face_metadata]
 
-    # Add query embedding
+    # Add the query embedding to the employee embeddings
     embeddings_to_plot = np.vstack([
         employee_embeddings,
         query_embedding
@@ -323,12 +240,9 @@ def visualize_embeddings(system, query_embedding, matches):
 
     query_index = len(employee_embeddings)
 
-    # 512 dimensions -> 3 principal components
+    # Reduce 512 dimensions to 3 principal components
     pca = PCA(n_components=3)
-
-    embeddings_3d = pca.fit_transform(
-        embeddings_to_plot
-    )
+    embeddings_3d = pca.fit_transform(embeddings_to_plot)
 
     point_types = ["Employee"] * len(employee_embeddings)
     display_labels = labels.copy()
@@ -336,7 +250,7 @@ def visualize_embeddings(system, query_embedding, matches):
     point_types.append("Query")
     display_labels.append("Query Face")
 
-    # Highlight matches
+    # Highlight matched employees
     for i, match in enumerate(matches):
         idx = match["index"]
 
@@ -363,7 +277,7 @@ def visualize_embeddings(system, query_embedding, matches):
         title="Face Embeddings in 3D Space"
     )
 
-    # Draw line from query to each match
+    # Draw a line from the query face to each matched employee
     for match in matches:
         match_idx = match["index"]
 
@@ -396,21 +310,16 @@ def visualize_embeddings(system, query_embedding, matches):
         margin=dict(l=0, r=0, b=0, t=40)
     )
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
+    st.plotly_chart(fig, use_container_width=True)
 
-    explained_variance = (
-        pca.explained_variance_ratio_.sum()
-    )
+    explained_variance = pca.explained_variance_ratio_.sum()
 
     st.caption(
         f"The first 3 principal components explain "
         f"{explained_variance:.2%} of total variance."
     )
 
-    # Similarity table
+    # Display similarity table
     if matches:
         match_data = []
 
@@ -459,7 +368,6 @@ def main():
 
     try:
         system = load_system()
-
     except FileNotFoundError:
         st.error(
             "FAISS index not found. "
@@ -469,7 +377,7 @@ def main():
 
     initialize_session_state(system)
 
-    # Easy to experiment with during learning
+    # Sidebar settings
     st.sidebar.header("Settings")
 
     threshold = st.sidebar.slider(
@@ -501,20 +409,26 @@ def main():
         display_employee_list(system)
 
     # ========================================================
-    # RIGHT: CHECK-IN
+    # RIGHT: EMPLOYEE CHECK-IN
     # ========================================================
 
     with col2:
         st.markdown("### 📸 Employee Check-in")
 
-        if st.button(
-            "Open Camera for Check-in",
-            type="primary",
-            use_container_width=True
-        ):
-            image = capture_from_camera()
+        # Camera input
+        camera_file = st.camera_input(
+            "Take a photo for check-in",
+            resolution="720p"
+        )
 
-            if image is not None:
+        if camera_file is not None:
+            image = camera_to_image(camera_file)
+
+            if st.button(
+                "Check camera image",
+                type="primary",
+                use_container_width=True
+            ):
                 st.session_state.captured_image = image
 
                 with st.spinner("Finding match..."):
@@ -527,15 +441,14 @@ def main():
 
                 st.rerun()
 
+        # Image upload
         uploaded_file = st.file_uploader(
             "Or upload an image",
             type=["jpg", "jpeg", "png"]
         )
 
         if uploaded_file is not None:
-            uploaded_image = Image.open(
-                uploaded_file
-            ).convert("RGB")
+            uploaded_image = Image.open(uploaded_file).convert("RGB")
 
             if st.button(
                 "Check uploaded image",
@@ -571,24 +484,17 @@ def main():
 
         if st.session_state.matching_result is not None:
             st.success(
-                f"✅ {st.session_state.matching_result} "
-                f"checked in!\n\n"
-                f"Similarity: "
-                f"{st.session_state.matching_similarity:.4f}"
+                f"✅ {st.session_state.matching_result} checked in!\n\n"
+                f"Similarity: {st.session_state.matching_similarity:.4f}"
             )
 
         elif (
             st.session_state.captured_image is not None
             and not st.session_state.all_matches
         ):
-            st.error(
-                "No employee passed "
-                "the similarity threshold."
-            )
+            st.error("No employee passed the similarity threshold.")
 
-        display_top_matches(
-            st.session_state.all_matches
-        )
+        display_top_matches(st.session_state.all_matches)
 
     # ========================================================
     # VECTOR SPACE VISUALIZATION
@@ -596,15 +502,11 @@ def main():
 
     if st.session_state.query_embedding is not None:
         st.divider()
-
-        st.markdown(
-            "### 🌌 Vector Space Visualization"
-        )
+        st.markdown("### 🌌 Vector Space Visualization")
 
         st.write(
-            "Each point represents a 512-dimensional "
-            "FaceNet embedding. PCA reduces the vectors "
-            "to 3 dimensions so we can visualize them."
+            "Each point represents a 512-dimensional face embedding. "
+            "PCA reduces the vectors to 3 dimensions so we can visualize them."
         )
 
         visualize_embeddings(

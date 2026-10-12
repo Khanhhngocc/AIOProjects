@@ -1,34 +1,22 @@
-from pathlib import Path
-
+import cv2
 import faiss
 import numpy as np
-import torch
-from PIL import Image, ImageOps
-from facenet_pytorch import MTCNN, InceptionResnetV1
 
-from .config import DEVICE, FACE_IMAGE_SIZE, FACE_VECTOR_DIM
+from insightface.app import FaceAnalysis
+from .config import FACE_VECTOR_DIM, INSIGHTFACE_MODEL_NAME, INSIGHTFACE_PROVIDERS
 
 
 class FaceEmbeddingEngine:
 
-    def __init__(self, device=DEVICE):
-        self.device = device
-
-        # Face detector
-        self.face_detector = MTCNN(
-            image_size=FACE_IMAGE_SIZE,
-            margin=0,
-            keep_all=False,
-            post_process=True,
-            device=self.device
+    def __init__(self, model_name=INSIGHTFACE_MODEL_NAME, providers=INSIGHTFACE_PROVIDERS):
+        self.model = FaceAnalysis(
+            name=model_name,
+            providers=providers,
+            allowed_modules=["detection", "recognition"]
         )
 
-        # Face embedding model
-        self.face_embedding_model = (
-            InceptionResnetV1(pretrained="vggface2")
-            .eval()
-            .to(self.device)
-        )
+        # ctx_id = -1 means CPU
+        self.model.prepare(ctx_id=-1)
 
 
     # ========================================================
@@ -36,34 +24,37 @@ class FaceEmbeddingEngine:
     # ========================================================
 
     def image_to_embedding(self, image_path):
-        img = Image.open(image_path)
-        img = ImageOps.exif_transpose(img)
-        img = img.convert("RGB")
+        image = cv2.imread(str(image_path))
 
-        # Detect + crop + preprocess face
-        face_tensor = self.face_detector(img)
+        if image is None:
+            raise ValueError(f"Cannot read image: {image_path}")
 
-        if face_tensor is None:
+        faces = self.model.get(image)
+
+        if not faces:
             raise ValueError(f"No face detected in {image_path}")
 
-        # (3, 160, 160) -> (1, 3, 160, 160)
-        face_tensor = face_tensor.unsqueeze(0).to(self.device)
+        # If multiple faces are detected, use the largest one
+        face = max(faces, key=self._face_area)
+        embedding = face.normed_embedding
 
-        # Generate FaceNet embedding
-        with torch.inference_mode():
-            embedding = self.face_embedding_model(face_tensor)
+        if embedding is None:
+            raise ValueError(f"Cannot generate embedding for {image_path}")
 
-        embedding = (
-            embedding
-            .cpu()
-            .numpy()
-            .astype(np.float32)
-        )
+        return np.ascontiguousarray(embedding, dtype=np.float32)
 
-        # Inner Product becomes equivalent to cosine similarity
-        faiss.normalize_L2(embedding)
 
-        return np.ascontiguousarray(embedding[0])
+    # ========================================================
+    # FACE AREA
+    # ========================================================
+
+    @staticmethod
+    def _face_area(face):
+        x1, y1, x2, y2 = face.bbox
+        width = max(0, x2 - x1)
+        height = max(0, y2 - y1)
+
+        return width * height
 
 
     # ========================================================
@@ -78,7 +69,6 @@ class FaceEmbeddingEngine:
             try:
                 embedding = self.image_to_embedding(record["image_path"])
                 index.add(embedding[np.newaxis, :])
-
                 metadata.append(record)
 
             except Exception as e:
@@ -88,51 +78,8 @@ class FaceEmbeddingEngine:
 
 
     # ========================================================
-    # SEARCH
-    # ========================================================
-
-    def search(self, query_image_path, index, metadata, k=5):
-        query_embedding = self.image_to_embedding(query_image_path)
-
-        return self.search_embedding(
-            query_embedding,
-            index,
-            metadata,
-            k=k
-        )
-
-
-    # ========================================================
-    # RECOGNITION
-    # ========================================================
-
-    def recognize(
-        self,
-        query_image_path,
-        index,
-        metadata,
-        similarity_threshold
-    ):
-        results = self.search(
-            query_image_path,
-            index,
-            metadata,
-            k=1
-        )
-
-        if not results:
-            return None
-
-        best_match = results[0]
-
-        if best_match["similarity"] >= similarity_threshold:
-            return best_match
-
-        return None
-
-    # ============================================================
     # SEARCH FROM EXISTING EMBEDDING
-    # ============================================================
+    # ========================================================
 
     def search_embedding(self, query_embedding, index, metadata, k=5):
         if index.ntotal == 0:
@@ -158,3 +105,41 @@ class FaceEmbeddingEngine:
             })
 
         return results
+
+
+    # ========================================================
+    # SEARCH FROM IMAGE
+    # ========================================================
+
+    def search(self, query_image_path, index, metadata, k=5):
+        query_embedding = self.image_to_embedding(query_image_path)
+
+        return self.search_embedding(
+            query_embedding,
+            index,
+            metadata,
+            k=k
+        )
+
+
+    # ========================================================
+    # RECOGNITION
+    # ========================================================
+
+    def recognize(self, query_image_path, index, metadata, similarity_threshold):
+        results = self.search(
+            query_image_path,
+            index,
+            metadata,
+            k=1
+        )
+
+        if not results:
+            return None
+
+        best_match = results[0]
+
+        if best_match["similarity"] >= similarity_threshold:
+            return best_match
+
+        return None

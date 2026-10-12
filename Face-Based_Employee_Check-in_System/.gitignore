@@ -4,22 +4,17 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# Virtual environment
+# Environment
 .venv/
-venv/
 
-# IDE / OS
+# IDE
 .idea/
 .vscode/
 .DS_Store
 
-# Generated FAISS indexes
+# Generated indexes
 data/processed/indexes/*.index
 data/processed/indexes/*.json
-
-# Dataset
-data/raw/Dataset/*
-!data/raw/Dataset/.gitkeep
 
 # Query images
 data/query/*

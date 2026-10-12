@@ -96,14 +96,9 @@ def recognize_face(system):
 def recognize_raw(system):
     query_path = get_query_path()
 
-    threshold = float(
-        input("Distance threshold: ")
-    )
+    threshold = float(input("Distance threshold: "))
 
-    result = system.recognize_raw(
-        query_path,
-        threshold
-    )
+    result = system.recognize_raw(query_path, threshold)
 
     if result is None:
         print("Employee not recognized.")

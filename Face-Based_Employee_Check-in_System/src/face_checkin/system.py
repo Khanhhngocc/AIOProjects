@@ -2,21 +2,13 @@ from pathlib import Path
 
 from .config import (
     DATASET_DIR,
-    DEVICE,
     RAW_INDEX_PATH,
     RAW_METADATA_PATH,
     FACE_INDEX_PATH,
     FACE_METADATA_PATH
 )
-
 from .dataset import load_dataset
-
-from .raw_pixels import (
-    build_raw_pixel_index,
-    search_raw_pixels,
-    recognize_employee_raw
-)
-
+from .raw_pixels import build_raw_pixel_index, search_raw_pixels, recognize_employee_raw
 from .face_embeddings import FaceEmbeddingEngine
 from .index_store import save_index, load_index
 
@@ -25,7 +17,6 @@ class FaceCheckinSystem:
 
     def __init__(self, dataset_dir=DATASET_DIR):
         self.dataset_dir = Path(dataset_dir)
-        self.device = DEVICE
 
         self._face_engine = None
 
@@ -43,11 +34,8 @@ class FaceCheckinSystem:
     @property
     def face_engine(self):
         if self._face_engine is None:
-            print(f"Loading MTCNN and FaceNet on {self.device}...")
-
-            self._face_engine = FaceEmbeddingEngine(
-                device=self.device
-            )
+            print("Loading InsightFace...")
+            self._face_engine = FaceEmbeddingEngine()
 
         return self._face_engine
 
@@ -61,33 +49,22 @@ class FaceCheckinSystem:
 
 
     # ========================================================
-    # BUILD INDEXES
+    # BUILD BOTH INDEXES
     # ========================================================
 
     def build_indexes(self, save=True):
         records = self.get_records()
 
         if not records:
-            raise ValueError(
-                f"No employee images found in {self.dataset_dir}"
-            )
+            raise ValueError(f"No employee images found in {self.dataset_dir}")
 
-        print(f"Using device: {self.device}")
         print(f"Number of employee images: {len(records)}")
 
-        # Raw pixel index
         print("\nBuilding raw-pixel index...")
+        self.raw_index, self.raw_metadata = build_raw_pixel_index(records)
 
-        self.raw_index, self.raw_metadata = (
-            build_raw_pixel_index(records)
-        )
-
-        # Face embedding index
         print("\nBuilding face-embedding index...")
-
-        self.face_index, self.face_metadata = (
-            self.face_engine.build_index(records)
-        )
+        self.face_index, self.face_metadata = self.face_engine.build_index(records)
 
         if save:
             save_index(
@@ -111,7 +88,30 @@ class FaceCheckinSystem:
 
 
     # ========================================================
-    # LOAD INDEXES
+    # BUILD FACE INDEX ONLY
+    # ========================================================
+
+    def build_face_index(self, save=True):
+        records = self.get_records()
+
+        if not records:
+            raise ValueError(f"No employee images found in {self.dataset_dir}")
+
+        self.face_index, self.face_metadata = self.face_engine.build_index(records)
+
+        if save:
+            save_index(
+                self.face_index,
+                self.face_metadata,
+                FACE_INDEX_PATH,
+                FACE_METADATA_PATH
+            )
+
+        return self.face_index.ntotal
+
+
+    # ========================================================
+    # LOAD BOTH INDEXES
     # ========================================================
 
     def load_indexes(self):
@@ -127,7 +127,18 @@ class FaceCheckinSystem:
 
 
     # ========================================================
-    # ENSURE INDEXES ARE LOADED
+    # LOAD FACE INDEX ONLY
+    # ========================================================
+
+    def load_face_index(self):
+        self.face_index, self.face_metadata = load_index(
+            FACE_INDEX_PATH,
+            FACE_METADATA_PATH
+        )
+
+
+    # ========================================================
+    # ENSURE INDEXES
     # ========================================================
 
     def _ensure_raw_index(self):
@@ -136,7 +147,6 @@ class FaceCheckinSystem:
                 RAW_INDEX_PATH,
                 RAW_METADATA_PATH
             )
-
 
     def _ensure_face_index(self):
         if self.face_index is None or self.face_metadata is None:
@@ -175,16 +185,22 @@ class FaceCheckinSystem:
             k=k
         )
 
+    def search_face_embedding(self, query_embedding, k=5):
+        self._ensure_face_index()
+
+        return self.face_engine.search_embedding(
+            query_embedding,
+            self.face_index,
+            self.face_metadata,
+            k=k
+        )
+
 
     # ========================================================
     # RAW RECOGNITION
     # ========================================================
 
-    def recognize_raw(
-        self,
-        query_image_path,
-        distance_threshold
-    ):
+    def recognize_raw(self, query_image_path, distance_threshold):
         self._ensure_raw_index()
 
         return recognize_employee_raw(
@@ -199,11 +215,7 @@ class FaceCheckinSystem:
     # FACE RECOGNITION
     # ========================================================
 
-    def recognize_face(
-        self,
-        query_image_path,
-        similarity_threshold
-    ):
+    def recognize_face(self, query_image_path, similarity_threshold):
         self._ensure_face_index()
 
         return self.face_engine.recognize(
@@ -211,18 +223,4 @@ class FaceCheckinSystem:
             self.face_index,
             self.face_metadata,
             similarity_threshold
-        )
-
-    # ========================================================
-    # FACE SEARCH FROM EXISTING EMBEDDING
-    # ========================================================
-
-    def search_face_embedding(self, query_embedding, k=5):
-        self._ensure_face_index()
-
-        return self.face_engine.search_embedding(
-            query_embedding,
-            self.face_index,
-            self.face_metadata,
-            k=k
         )
