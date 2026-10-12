@@ -1,15 +1,23 @@
-import cv2
-import numpy as np
-import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
 
 from PIL import Image, ImageOps
 from sklearn.decomposition import PCA
 
 from face_checkin.config import QUERY_DIR
 from face_checkin.system import FaceCheckinSystem
+
+import streamlit as st
+
+try:
+    import cv2
+except Exception as e:
+    st.error("OpenCV import failed")
+    st.exception(e)
+    st.stop()
+
+import numpy as np
+import pandas as pd
 
 
 # ============================================================
