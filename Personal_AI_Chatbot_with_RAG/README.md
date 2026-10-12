@@ -10,6 +10,14 @@ Two Streamlit applications are included:
 - **Basic RAG App** — a simple interface for understanding the core RAG workflow.
 - **RAG Chatbot App** — an extended chatbot interface with conversation history and document management.
 
+## Live Demo
+
+[Please, be curious and try the chatbot version!](https://pdf-rag-chatbot-with-me.streamlit.app/)
+
+[Please, be curious and try the basic version!](https://pdf-rag-basic.streamlit.app/)
+
+
+
 ---
 
 ## Features

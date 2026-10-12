@@ -4,6 +4,10 @@ An AI-powered cocktail recommendation system built with **Python**, **Sentence T
 
 The application converts cocktail information and user preferences into vector embeddings and uses semantic similarity search to recommend cocktails based on ingredients, style, occasion, category, or mixed preferences.
 
+## Live Demo
+
+[Enough README? Launch the app.](https://cocktail-suggestions-with-me.streamlit.app/)
+
 ---
 
 ## Features

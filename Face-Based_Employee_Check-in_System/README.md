@@ -6,6 +6,11 @@ The project demonstrates how facial images can be converted into vector embeddin
 
 The project was initially developed with **MTCNN + FaceNet** as a learning implementation, then migrated to **InsightFace + ONNX Runtime** for better compatibility and deployment.
 
+## Live Demo
+
+[Come on! Click the demo.](https://faced-based-employee-check-in-with-me.streamlit.app/)
+
+
 ---
 
 ## Features
